@@ -1,129 +1,284 @@
-let handPose;
 let video;
-let hands = [];
-let pts = []; 
-let heartColor = 255;
-let hearts = []; 
-let heartCreated = false;
+let handpose;
+let predictions = [];
 
-let colorPalette = ["#70d6ff", "#ff70a6", "#ff9770", "#ffd670", "#e9ff70"];
+let leftPlayer, rightPlayer;
+
+let items = [];
+
+let score = 5;
+let gameRunning = true;
+let questionActive = false;
+
+let questionDiv; // 題目區域
+let buttons = [];
+
+let eduQuestions = [
+  {
+    q: "教育科技學系主要研究什麼？",
+    a: "教學與科技",
+    options: ["教學與科技", "金融管理", "醫學研究", "環境保護"]
+  },
+  {
+    q: "虛擬實境在教育中常用來做什麼？",
+    a: "模擬環境",
+    options: ["模擬環境", "數據分析", "語言學習", "行政管理"]
+  },
+  {
+    q: "自適應學習系統能幫助什麼？",
+    a: "個別化學習",
+    options: ["個別化學習", "大量記憶", "快速測驗", "隨機教學"]
+  },
+  {
+    q: "翻轉教室是什麼教學方式？",
+    a: "先學習再討論",
+    options: ["先學習再討論", "老師上課，學生聽", "全班同時考試", "團隊合作"]
+  },
+  {
+    q: "教育大數據主要用來分析什麼？",
+    a: "學習行為",
+    options: ["學習行為", "環境汙染", "金融趨勢", "運動成績"]
+  }
+];
 
 function setup() {
   createCanvas(640, 480);
   video = createCapture(VIDEO);
-  video.size(640, 480);
+  video.size(width, height);
   video.hide();
 
-  handPose = ml5.handpose(video, modelReady);  // 載入 handpose 模型
-  handPose.on("predict", gotHands);            // 註冊 callback 接收辨識結果
-}
+  handpose = ml5.handpose(video, () => console.log("Handpose loaded"));
+  handpose.on("predict", results => predictions = results);
 
-function modelReady() {
-  console.log("Handpose model loaded.");
+  leftPlayer = new Player(50, height / 2, color(255, 100, 100));
+  rightPlayer = new Player(width - 50, height / 2, color(100, 100, 255));
+
+  questionDiv = createDiv("").style('position', 'absolute').style('top', '10px').style('right', '10px').style('width', '280px').style('background', 'rgba(255,255,255,0.9)').style('padding', '15px').style('border-radius', '10px').hide();
 }
 
 function draw() {
+  background(30);
+
+  // 鏡像反轉
+  push();
+  translate(width, 0);
+  scale(-1, 1);
   image(video, 0, 0, width, height);
+  pop();
 
-  trackHandPosition();
-
-  fill(heartColor);
-  noStroke();
-  beginShape();
-  for (let i = 0; i < pts.length; i++) {
-    if (pts[i]) {
-      vertex(pts[i].x, pts[i].y);
-    }
+  if (!gameRunning) {
+    fill(255);
+    textSize(40);
+    textAlign(CENTER, CENTER);
+    text("遊戲結束！得分：" + score, width / 2, height / 2);
+    return;
   }
-  endShape(CLOSE);
 
-  checkForHeart();
+  if (!questionActive) {
+    updatePlayers();
+    spawnItems();
+    updateItems();
+  }
 
-  // 更新與顯示愛心動畫
-  for (let i = hearts.length - 1; i >= 0; i--) {
-    hearts[i].update();
-    hearts[i].display();
-    if (hearts[i].done) {
-      hearts.splice(i, 1);
+  drawPlayers();
+  drawItems();
+
+  drawHUD();
+}
+
+function updatePlayers() {
+  if (predictions.length > 0) {
+    let hands = predictions;
+
+    let leftHand = null;
+    let rightHand = null;
+
+    hands.forEach(hand => {
+      let x = hand.landmarks[0][0];
+      if (x < width / 2) leftHand = hand;
+      else rightHand = hand;
+    });
+
+    if (leftHand) {
+      let x = width - leftHand.landmarks[0][0];
+      let y = leftHand.landmarks[0][1];
+      leftPlayer.setPos(x, y);
+    }
+    if (rightHand) {
+      let x = width - rightHand.landmarks[0][0];
+      let y = rightHand.landmarks[0][1];
+      rightPlayer.setPos(x, y);
     }
   }
 }
 
-function gotHands(results) {
-  hands = results;
-}
-
-function trackHandPosition() {
-  let updatedPts = [];
-  for (let i = 0; i < hands.length; i++) {
-    let hand = hands[i];
-    let handedness = hand.handedness;
-    let keypoints = hand.landmarks.map((p, index) => ({ x: p[0], y: p[1], z: p[2] }));
-
-    if (handedness === "Left") {
-      updatedPts[0] = keypoints[4];
-      updatedPts[1] = keypoints[3];
-      updatedPts[2] = keypoints[2];
-      updatedPts[3] = keypoints[5];
-      updatedPts[4] = keypoints[6];
-      updatedPts[5] = keypoints[7];
-      updatedPts[6] = keypoints[8];
-    }
-
-    if (handedness === "Right") {
-      updatedPts[7] = keypoints[8];
-      updatedPts[8] = keypoints[7];
-      updatedPts[9] = keypoints[6];
-      updatedPts[10] = keypoints[5];
-      updatedPts[11] = keypoints[2];
-      updatedPts[12] = keypoints[3];
-      updatedPts[13] = keypoints[4];
-    }
-  }
-  pts = updatedPts;
-}
-
-function checkForHeart() {
-  let leftThumb = pts[0];
-  let rightThumb = pts[13];
-  let leftIndex = pts[6];
-  let rightIndex = pts[7];
-
-  if (leftThumb && rightThumb && leftIndex && rightIndex) {
-    let thumbDist = dist(leftThumb.x, leftThumb.y, rightThumb.x, rightThumb.y);
-    let indexDist = dist(leftIndex.x, leftIndex.y, rightIndex.x, rightIndex.y);
-
-    if (thumbDist < 20 && indexDist < 20 && !heartCreated) {
-      hearts.push(new Heart(pts));
-      heartCreated = true;
-    } else if (thumbDist > 30 || indexDist > 30) {
-      heartCreated = false;
+function spawnItems() {
+  if (frameCount % 60 === 0) {
+    let r = random();
+    if (r < 0.6) {
+      let q = random(eduQuestions);
+      items.push(new RewardBox(random(50, width - 50), -40, q));
+    } else {
+      items.push(new Bomb(random(50, width - 50), -40));
     }
   }
 }
 
-class Heart {
-  constructor(points) {
-    this.points = points.map(p => ({ x: p.x, y: p.y }));
-    this.color = random(colorPalette);
-    this.opacity = 255;
-    this.done = false;
-  }
+function updateItems() {
+  for (let i = items.length - 1; i >= 0; i--) {
+    items[i].update();
 
-  update() {
-    this.opacity -= 3;
-    if (this.opacity <= 0) {
-      this.done = true;
+    if (items[i].checkCollision(leftPlayer) || items[i].checkCollision(rightPlayer)) {
+      if (items[i] instanceof RewardBox) {
+        questionActive = true;
+        noLoop();
+        showQuestion(items[i].question);
+        items.splice(i, 1);
+        return;
+      } else if (items[i] instanceof Bomb) {
+        score -= 5;
+        items.splice(i, 1);
+        alert("碰到炸彈！扣5分！");
+      }
+    } else if (items[i].y > height + 50) {
+      items.splice(i, 1);
     }
   }
+}
 
+function drawPlayers() {
+  leftPlayer.display();
+  rightPlayer.display();
+}
+
+function drawItems() {
+  for (let item of items) {
+    item.display();
+  }
+}
+
+function drawHUD() {
+  fill(255);
+  textSize(18);
+  textAlign(LEFT, TOP);
+  text("得分: " + score, 10, 10);
+  if(score >= 20){
+    gameRunning = false;
+  } else if(score <= 0){
+    gameRunning = false;
+  }
+}
+
+function showQuestion(question) {
+  questionDiv.html("");
+  questionDiv.show();
+
+  let qText = createP(question.q);
+  qText.parent(questionDiv);
+  qText.style('font-weight', 'bold').style('font-size', '16px').style('margin', '5px 0');
+
+  buttons = [];
+  for(let option of question.options){
+    let btn = createButton(option);
+    btn.parent(questionDiv);
+    btn.style('display', 'block');
+    btn.style('margin', '5px 0');
+    btn.mousePressed(() => {
+      checkAnswer(option, question.a);
+    });
+    buttons.push(btn);
+  }
+}
+
+function checkAnswer(selected, correct) {
+  questionDiv.hide();
+  questionActive = false;
+
+  if(selected === correct){
+    alert("答對了！得10分！");
+    score += 10;
+  } else {
+    alert("答錯了！扣5分！正確答案是：" + correct);
+    score -= 5;
+  }
+
+  loop();
+}
+
+// 玩家方塊
+class Player {
+  constructor(x, y, c) {
+    this.x = x;
+    this.y = y;
+    this.size = 60;
+    this.color = c;
+  }
+  setPos(x, y) {
+    this.x = constrain(x, this.size / 2, width - this.size / 2);
+    this.y = constrain(y, this.size / 2, height - this.size / 2);
+  }
   display() {
-    fill(this.color + hex(floor(this.opacity), 2));
+    push();
     noStroke();
-    beginShape();
-    for (let pt of this.points) {
-      vertex(pt.x, pt.y);
-    }
-    endShape(CLOSE);
+    fill(this.color);
+    rectMode(CENTER);
+    rect(this.x, this.y, this.size, this.size);
+    pop();
+  }
+}
+
+// 獎勵盒(帶問題)
+class RewardBox {
+  constructor(x, y, question) {
+    this.x = x;
+    this.y = y;
+    this.size = 70;
+    this.question = question;
+    this.speed = 3;
+    this.color = color(255, 192, 203);
+  }
+  update() {
+    this.y += this.speed;
+  }
+  display() {
+    push();
+    rectMode(CENTER);
+    noStroke();
+    fill(this.color);
+    rect(this.x, this.y, this.size, this.size, 10);
+    fill(0);
+    textSize(12);
+    textAlign(CENTER, CENTER);
+    text("問題", this.x, this.y);
+    pop();
+  }
+  checkCollision(player) {
+    let d = dist(this.x, this.y, player.x, player.y);
+    return d < (this.size / 2 + player.size / 2) * 0.8;
+  }
+}
+
+// 炸彈
+class Bomb {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.size = 50;
+    this.speed = 5;
+    this.color = color(80, 80, 80);
+  }
+  update() {
+    this.y += this.speed;
+  }
+   display() {
+    push();
+    noStroke();
+    fill(this.color);
+    ellipse(this.x, this.y, this.size);
+    pop();
+  }
+  checkCollision(player) {
+    let d = dist(this.x, this.y, player.x, player.y);
+    return d < (this.size / 2 + player.size / 2) * 0.8;
   }
 }
